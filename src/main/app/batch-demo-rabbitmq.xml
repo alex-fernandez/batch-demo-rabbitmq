@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd">
+    <amqp:connector name="AMQP_0_9_Connector" validateConnections="true" doc:name="AMQP-0-9 Connector"/>
+    <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="8081" doc:name="HTTP Listener Configuration"/>
+    <flow name="batch-demo-rabbitmqFlow">
+        <amqp:inbound-endpoint queueName="sample" responseTimeout="10000"  connector-ref="AMQP_0_9_Connector" doc:name="AMQP-0-9" exchange-pattern="request-response"/>
+        <json:json-to-object-transformer returnClass="java.util.List" doc:name="JSON to Object"/>
+        <json:object-to-json-transformer doc:name="Object to JSON"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload map  {
+  name: $.name,
+  age:  $.age
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <logger message="data #[payload]" level="INFO" doc:name="Logger"/>
+        <flow-ref name="batch-demo-rabbitmqFlow1" doc:name="Flow Reference"/>
+    </flow>
+    <flow name="batch-demo-rabbitmqFlow1">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+[
+    {
+        "name":"John",
+        "age":30,
+        "cars":[
+            "Ford",
+            "BMW",
+            "Fiat"
+        ]
+    }
+]]]></dw:set-payload>
+        </dw:transform-message>
+        <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+        <batch:execute name="batch-demo-rabbitmqBatch" doc:name="Batch Execute"/>
+    </flow>
+    <flow name="batch-demo-rabbitmqFlow2">
+        <http:listener config-ref="HTTP_Listener_Configuration" path="/" doc:name="HTTP"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+[{
+"name":"John",
+"age":30,
+"cars":[ "Ford", "BMW", "Fiat" ]
+}
+]]]></dw:set-payload>
+        </dw:transform-message>
+        <amqp:outbound-endpoint queueName="sample" responseTimeout="10000" exchange-pattern="request-response" connector-ref="AMQP_0_9_Connector" doc:name="AMQP-0-9"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	status: 'COMPLETE'
+}]]></dw:set-payload>
+        </dw:transform-message>
+    </flow>
+    <batch:job name="batch-demo-rabbitmqBatch">
+        <batch:process-records>
+            <batch:step name="Batch_Step">
+                <logger message="The paylaod one by one #[payload]" level="INFO" doc:name="Logger"/>
+            </batch:step>
+        </batch:process-records>
+    </batch:job>
+</mule>
